@@ -1,19 +1,40 @@
+if getgenv().Optimization then return end
+getgenv().Optimization = true
+
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
 local UserInputService = game:GetService("UserInputService")
 local Debris = game:GetService("Debris")
+local LocalPlayer = Players.LocalPlayer
 
-if setfpscap then
-    setfpscap(9999)
-end
+if setfpscap then setfpscap(9999) end
+
+pcall(function()
+    settings().Network.IncomingReplicationLag = -1
+    settings().Network.PhysicsSendRate = 60
+    settings().Network.DataSendRate = 60
+end)
+
+local focusPart = Instance.new("Part")
+focusPart.Name = "ClientFocus"
+focusPart.Transparency = 1
+focusPart.Anchored = true
+focusPart.CanCollide = false
+focusPart.CanTouch = false
+focusPart.CastShadow = false
+focusPart.Parent = workspace
+
+RunService.Heartbeat:Connect(function()
+    local cam = workspace.CurrentCamera
+    if cam then
+        focusPart.CFrame = cam.CFrame
+        LocalPlayer.ReplicationFocus = focusPart
+    end
+end)
 
 local OptimizationInterval = 60
 local lastOptimization = 0
-
-settings().Rendering.QualityLevel = 1
-settings().Network.IncomingReplicationLag = -1
 
 local function PutPhysicsToSleep()
     for _, v in ipairs(workspace:GetDescendants()) do
@@ -22,22 +43,45 @@ local function PutPhysicsToSleep()
                 v.Velocity = Vector3.new(0, 0, 0)
                 v.RotVelocity = Vector3.new(0, 0, 0)
             end
-            v.CanTouch = false
-            v.CanQuery = false
         end
     end
 end
 
 local function CleanAssets()
-    for _, v in ipairs(game:GetDescendants()) do
+    for _, v in ipairs(workspace:GetDescendants()) do
         if v:IsA("BasePart") and v.Size.Magnitude < 1 then
             v.CastShadow = false
         end
     end
 end
 
+local function DisableClouds()
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v:IsA("Clouds") then
+            v.Enabled = false
+        end
+    end
+end
+
+local function OptimizeAtmosphere()
+    local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+    if atmosphere then
+        atmosphere.Density = 0
+        atmosphere.Glare = 0
+        atmosphere.Haze = 0
+    end
+end
+
+local function OptimizeTerrain()
+    local Terrain = workspace:FindFirstChildOfClass("Terrain")
+    if Terrain then
+        Terrain.WaterReflectance = 0
+        Terrain.WaterTransparency = 0
+    end
+end
+
 local function SafeMemoryReclaim()
-    local success, err = pcall(function()
+    pcall(function()
         for i = 1, 5 do
             local t = Instance.new("Folder")
             t.Parent = game:GetService("ReplicatedStorage")
@@ -46,41 +90,24 @@ local function SafeMemoryReclaim()
     end)
 end
 
-local function UpdateFocus()
-    local Camera = workspace.CurrentCamera
-    if Camera and LocalPlayer then
-        local Focus = workspace:FindFirstChild("ClientFocus") or Instance.new("Part")
-        Focus.Name = "ClientFocus"
-        Focus.Transparency = 1
-        Focus.Anchored = true
-        Focus.CanCollide = false
-        Focus.CanTouch = false
-        Focus.Parent = workspace
-        Focus.CFrame = Camera.CFrame
-        
-        LocalPlayer.ReplicationFocus = Focus
-    end
+getgenv().RunOptimizer = function()
+    PutPhysicsToSleep()
+    CleanAssets()
+    SafeMemoryReclaim()
 end
 
-UserInputService.MouseIconEnabled = true
-local gui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-if gui then
-    pcall(function()
-        settings().Rendering.ExposeUserGuiBuildStats = false
-    end)
+getgenv().StopOptimizer = function()
+    getgenv().Optimization = false
 end
 
-Lighting.GlobalShadows = false 
-Lighting.EnvironmentDiffuseScale = 0
-Lighting.EnvironmentSpecularScale = 0
+DisableClouds()
+OptimizeAtmosphere()
+OptimizeTerrain()
 
 RunService.Heartbeat:Connect(function()
-    UpdateFocus()
-    
     local now = tick()
     if now - lastOptimization > OptimizationInterval then
         lastOptimization = now
-        
         task.spawn(function()
             PutPhysicsToSleep()
             CleanAssets()
@@ -89,36 +116,23 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
-pcall(function()
-    settings().Network.PhysicsSendRate = 60
-    settings().Network.DataSendRate = 60
+Players.PlayerAdded:Connect(function()
+    task.spawn(function()
+        PutPhysicsToSleep()
+        CleanAssets()
+    end)
 end)
 
-local Lighting = game:GetService("Lighting")
-local Terrain = workspace:FindFirstChildOfClass("Terrain")
-
-for _, v in ipairs(workspace:GetDescendants()) do
+workspace.DescendantAdded:Connect(function(v)
+    if v:IsA("BasePart") then
+        if v.Size.Magnitude < 1 then
+            v.CastShadow = false
+        end
+    end
     if v:IsA("Clouds") then
         v.Enabled = false
     end
-end
-
-local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
-if atmosphere then
-    atmosphere.Density = 0
-    atmosphere.Glare = 0
-    atmosphere.Haze = 0
-end
-
-Lighting.GlobalShadows = false
-Lighting.EnvironmentDiffuseScale = 0
-Lighting.EnvironmentSpecularScale = 0
-Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
-
-if Terrain then
-    Terrain.WaterReflectance = 0
-    Terrain.WaterTransparency = 0
-end
+end)
 
 local FastFlags = {
     ["FFlagHandleAltEnterFullscreenManually"] = "False",
@@ -324,7 +338,6 @@ local FastFlags = {
     ["FFlagRenderNoDistortion"] = "True",
     ["FIntRenderGpuHsrMargin"] = "0",
     ["FFlagRenderUseGpuFullHsr"] = "True"
-    
 }
 
 for flag, value in pairs(FastFlags) do
